@@ -20,11 +20,11 @@ jobs:
             -Name "SecurityLayer" -Value 0 -Force
 
           # Remove any existing rule with the same name to avoid duplication
-          netsh advfirewall firewall delete rule name="RDP-ZeroTier"
+          netsh advfirewall firewall delete rule name="RDP-ZeroTier" | Out-Null
 
-          # Allow incoming RDP connection on port 3389
+          # Allow incoming RDP connections on port 3389
           netsh advfirewall firewall add rule name="RDP-ZeroTier" `
-            dir=in action=allow protocol=TCP localport=3389
+            dir=in action=allow protocol=TCP localport=3389 | Out-Null
 
           # Restart Remote Desktop service to apply settings
           Restart-Service -Name TermService -Force
@@ -38,13 +38,16 @@ jobs:
               Number  = [char[]](48..57)
               Special = ([char[]](33..47) + [char[]](58..64) + [char[]](91..96) + [char[]](123..126))
           }
+
           $rawPassword = @()
           $rawPassword += $charSet.Upper | Get-Random -Count 4
           $rawPassword += $charSet.Lower | Get-Random -Count 4
           $rawPassword += $charSet.Number | Get-Random -Count 4
           $rawPassword += $charSet.Special | Get-Random -Count 4
+
           $password = -join ($rawPassword | Sort-Object { Get-Random })
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
+
           New-LocalUser -Name "RDP" -Password $securePass -AccountNeverExpires
           Add-LocalGroupMember -Group "Administrators" -Member "RDP"
           Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDP"
@@ -58,11 +61,15 @@ jobs:
 
       - name: Install ZeroTier
         run: |
-          $ztUrl = "https://download.zerotier.com/RELEASES/1.14.0/dist/ZeroTierOne_x64.msi"
+          $ztUrl = "https://download.zerotier.com/dist/ZeroTierOne_x64.msi"
           $installerPath = "$env:TEMP\zerotier.msi"
 
-          Invoke-WebRequest -Uri $ztUrl -OutFile $installerPath
+          Write-Host "Downloading ZeroTier installer from $ztUrl..."
+          Invoke-WebRequest -Uri $ztUrl -OutFile $installerPath -UseBasicParsing
+
+          Write-Host "Installing ZeroTier..."
           Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
+
           Remove-Item $installerPath -Force
 
       - name: Join ZeroTier Network
