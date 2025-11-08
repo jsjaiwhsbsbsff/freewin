@@ -9,7 +9,7 @@ jobs:
     timeout-minutes: 3600
 
     steps:
-      - name: Enable Remote Desktop and Firewall Rules
+      - name: Enable Remote Desktop and Firewall
         run: |
           Write-Host "🔧 Enabling Remote Desktop..."
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
@@ -19,15 +19,12 @@ jobs:
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
             -Name "SecurityLayer" -Value 0 -Force
 
-          Write-Host "🧱 Opening firewall for RDP..."
+          Write-Host "🧱 Configuring firewall rules..."
           netsh advfirewall firewall set rule group="remote desktop" new enable=yes profile=any
-          netsh advfirewall firewall delete rule name="RDP-ZeroTier" 2>nul
-          netsh advfirewall firewall add rule name="RDP-ZeroTier" `
-            dir=in action=allow protocol=TCP localport=3389 profile=any enable=yes
+          netsh advfirewall firewall add rule name="RDP-ZeroTier" dir=in action=allow protocol=TCP localport=3389 profile=any enable=yes
 
-          Write-Host "🔄 Restarting RDP service..."
           Restart-Service -Name TermService -Force
-          Write-Host "✅ RDP enabled successfully."
+          Write-Host "✅ Remote Desktop Enabled."
 
       - name: Create RDP User
         run: |
@@ -53,20 +50,17 @@ jobs:
 
           echo "RDP_USER=RDP" >> $env:GITHUB_ENV
           echo "RDP_PASS=$password" >> $env:GITHUB_ENV
-
-          Write-Host "✅ User created successfully."
-          Write-Host "Username: RDP"
-          Write-Host "Password: $password"
+          Write-Host "✅ Created user RDP with password: $password"
 
       - name: Install ZeroTier
         run: |
           Write-Host "⬇️ Downloading and installing ZeroTier..."
-          $ztUrl = "https://download.zerotier.com/RELEASES/1.14.2/dist/ZeroTierOne_x64.msi"
+          $ztUrl = "https://download.zerotier.com/dist/ZeroTierOne.msi"
           $installerPath = "$env:TEMP\ZeroTierOne.msi"
           Invoke-WebRequest -Uri $ztUrl -OutFile $installerPath -UseBasicParsing
           Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
           Remove-Item $installerPath -Force
-          Write-Host "✅ ZeroTier installed."
+          Write-Host "✅ ZeroTier installed successfully."
 
       - name: Join ZeroTier Network (Wait for Authorization)
         run: |
@@ -87,10 +81,10 @@ jobs:
             $status = & $cliPath listnetworks
             $ztIP = ($status | Select-String -Pattern "(\d+\.\d+\.\d+\.\d+)") | ForEach-Object { $_.Matches.Groups[1].Value } | Select-Object -First 1
             if ($ztIP) {
-              Write-Host "✅ ZeroTier IP: $ztIP"
+              Write-Host "✅ ZeroTier IP assigned: $ztIP"
               break
             } else {
-              Write-Host "[$i/$maxRetries] Waiting for authorization in ZeroTier dashboard..."
+              Write-Host "[$i/$maxRetries] Waiting for node authorization in ZeroTier dashboard..."
               Start-Sleep -Seconds 5
             }
           }
@@ -104,20 +98,20 @@ jobs:
 
       - name: Verify RDP Connection
         run: |
-          Write-Host "🌐 Testing RDP port on $env:ZEROTIER_IP..."
+          Write-Host "🌐 Testing RDP connectivity..."
           $test = Test-NetConnection -ComputerName $env:ZEROTIER_IP -Port 3389
           if (-not $test.TcpTestSucceeded) {
-            Write-Host "⚠️ RDP port not reachable, retrying firewall setup..."
+            Write-Host "⚠️ Port 3389 unreachable, retrying..."
             netsh advfirewall firewall set rule group="remote desktop" new enable=yes profile=any
             Restart-Service -Name TermService -Force
             Start-Sleep -Seconds 10
             $test = Test-NetConnection -ComputerName $env:ZEROTIER_IP -Port 3389
             if (-not $test.TcpTestSucceeded) {
-              Write-Error "❌ RDP port still unreachable!"
+              Write-Error "❌ Still unreachable on port 3389"
               exit 1
             }
           }
-          Write-Host "✅ RDP port 3389 reachable!"
+          Write-Host "✅ RDP port 3389 reachable."
 
       - name: Keep Session Alive
         run: |
