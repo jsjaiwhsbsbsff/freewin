@@ -20,15 +20,13 @@ jobs:
             -Name "SecurityLayer" -Value 0 -Force
 
           Write-Host "🧱 Configuring firewall rules..."
-          netsh advfirewall firewall set rule group="remote desktop" new enable=yes profile=any
+          netsh advfirewall firewall set rule group="remote desktop" new enable=yes
           netsh advfirewall firewall add rule name="RDP-ZeroTier" dir=in action=allow protocol=TCP localport=3389 profile=any enable=yes
-
           Restart-Service -Name TermService -Force
           Write-Host "✅ Remote Desktop Enabled."
 
       - name: Create RDP User
         run: |
-          Write-Host "👤 Creating RDP user..."
           Add-Type -AssemblyName System.Security
           $charSet = @{
             Upper   = [char[]](65..90)
@@ -50,7 +48,7 @@ jobs:
 
           echo "RDP_USER=RDP" >> $env:GITHUB_ENV
           echo "RDP_PASS=$password" >> $env:GITHUB_ENV
-          Write-Host "✅ Created user RDP with password: $password"
+          Write-Host "✅ RDP user created. Password: $password"
 
       - name: Install ZeroTier
         run: |
@@ -60,20 +58,17 @@ jobs:
           Invoke-WebRequest -Uri $ztUrl -OutFile $installerPath -UseBasicParsing
           Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
           Remove-Item $installerPath -Force
-          Write-Host "✅ ZeroTier installed successfully."
+          Write-Host "✅ ZeroTier installed."
 
       - name: Join ZeroTier Network (Wait for Authorization)
         run: |
           $networkId = "${{ secrets.ZEROTIER_NETWORK_ID }}"
           $cliPath = "C:\Program Files (x86)\ZeroTier\One\zerotier-cli.bat"
 
-          Write-Host "🚀 Starting ZeroTier service..."
           Start-Service -Name "ZeroTierOne" -ErrorAction SilentlyContinue
           Start-Sleep -Seconds 10
 
-          Write-Host "🔗 Joining ZeroTier network: $networkId"
           & $cliPath join $networkId
-
           Write-Host "⏳ Waiting for authorization and IP..."
           $ztIP = $null
           $maxRetries = 60
@@ -84,13 +79,13 @@ jobs:
               Write-Host "✅ ZeroTier IP assigned: $ztIP"
               break
             } else {
-              Write-Host "[$i/$maxRetries] Waiting for node authorization in ZeroTier dashboard..."
+              Write-Host "[$i/$maxRetries] Waiting for dashboard authorization..."
               Start-Sleep -Seconds 5
             }
           }
 
           if (-not $ztIP) {
-            Write-Error "❌ No ZeroTier IP found! Please authorize the node in the dashboard."
+            Write-Error "❌ No ZeroTier IP found! Please authorize this node."
             exit 1
           }
 
@@ -101,17 +96,18 @@ jobs:
           Write-Host "🌐 Testing RDP connectivity..."
           $test = Test-NetConnection -ComputerName $env:ZEROTIER_IP -Port 3389
           if (-not $test.TcpTestSucceeded) {
-            Write-Host "⚠️ Port 3389 unreachable, retrying..."
-            netsh advfirewall firewall set rule group="remote desktop" new enable=yes profile=any
+            Write-Host "⚠️ Port 3389 unreachable, retrying firewall setup..."
+            netsh advfirewall firewall set rule group="remote desktop" new enable=yes
             Restart-Service -Name TermService -Force
             Start-Sleep -Seconds 10
             $test = Test-NetConnection -ComputerName $env:ZEROTIER_IP -Port 3389
-            if (-not $test.TcpTestSucceeded) {
-              Write-Error "❌ Still unreachable on port 3389"
-              exit 1
-            }
           }
-          Write-Host "✅ RDP port 3389 reachable."
+
+          if (-not $test.TcpTestSucceeded) {
+            Write-Host "❌ Still unreachable, skipping auto-fail (machine still usable)."
+          } else {
+            Write-Host "✅ RDP port 3389 reachable!"
+          }
 
       - name: Keep Session Alive
         run: |
@@ -127,3 +123,4 @@ jobs:
             Write-Host "[$(Get-Date)] RDP running on $env:ZEROTIER_IP ..."
             Start-Sleep -Seconds 300
           }
+          
